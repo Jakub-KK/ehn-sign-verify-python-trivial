@@ -127,6 +127,11 @@ parser.add_argument(
     help="Pretty print and sort the JSON. Will output UTF-8 as is (none pretty print will escape any UTF8).",
 )
 parser.add_argument(
+    "--prettyprint-dates",
+    action="store_true",
+    help="Format unix epoch time in claims as date-time strings",
+)
+parser.add_argument(
     "cert", help="Certificate to validate against", default="dsc-worker.pem", nargs="?"
 )
 parser.add_argument(
@@ -253,13 +258,19 @@ payload = decoded.payload
 if not args.skip_cbor:
     payload = cbor2.loads(payload)
     if not args.skip_claim:
+        datetime_format = { 6: True, 4: True }
         claim_names = { 1 : "Issuer", 6: "Issued At", 4: "Experation time", -260 : "Health claims" }
         for k in payload:
           if k != -260:
-            n = f'Claim {k} (unknown)'
             if k in claim_names:
-               n = claim_names[k]
-            print(f'{n:20}: {payload[k]}')
+                n = claim_names[k]
+            else:
+                n = f'Claim {k} (unknown)'
+            t = payload[k]
+            if args.prettyprint_dates:
+                if k in datetime_format:
+                    t = datetime.fromtimestamp(payload[k]).strftime("%Y-%m-%dT%H:%M:%S")
+            print(f'{n:20}: {t}')
         # payload = cbor2.loads(payload[-260][1])
         payload = payload[-260][1]
         n = 'Health payload'
