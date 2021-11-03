@@ -103,6 +103,9 @@ parser.add_argument(
     "-u", "--use-verifier-url", action="store", help="Use specific URL for trusted publick_keys"
 )
 parser.add_argument(
+    "-f", "--use-verifier-file", action="store", help="Use specific FILE for trusted public_keys"
+)
+parser.add_argument(
     "-i",
     "--ignore-signature",
     action="store_true",
@@ -174,7 +177,7 @@ if args.xy:
     if not args.ignore_kid and keyid:
         kids[b64encode(keyid).decode('ASCII')] = key
 
-elif args.use_verifier or args.use_verifier_url:
+elif args.use_verifier or args.use_verifier_url or args.use_verifier_file:
     if args.ignore_signature:
       print("Flag --ignore-signature not compatible with trusted URL check", file=sys.stderr)
       sys.exit(1)
@@ -182,11 +185,20 @@ elif args.use_verifier or args.use_verifier_url:
       print("Flag for UK verifier not compatible with trusted URL/EU-DCC check", file=sys.stderr)
       sys.exit(1)
 
-    url = DEFAULT_TRUST_URL
-    if args.use_verifier_url:
-       url = args.use_verifier_url
-    response = urllib.request.urlopen(url)
-    pkg = json.loads(response.read())
+    if args.use_verifier_file:
+        try:
+            with open(args.use_verifier_file, "r") as file:
+                responseText = file.read()
+        except OSError as err:
+            print(f"Unable to load verifier data from '{args.use_verifier_file}' file: {err.strerror}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        url = DEFAULT_TRUST_URL
+        if args.use_verifier_url:
+           url = args.use_verifier_url
+        response = urllib.request.urlopen(url)
+        responseText = response.read()
+    pkg = json.loads(responseText)
     payload = b64decode(pkg['payload'])
     trustlist = json.loads(payload)
     eulist = trustlist['eu_keys']
