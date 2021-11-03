@@ -8,6 +8,7 @@ import zlib
 import re
 from base64 import b64decode, b64encode
 from datetime import date, datetime
+from pathlib import Path
 
 import cbor2
 from binascii import unhexlify, hexlify
@@ -65,6 +66,59 @@ def json_serial(obj):
     if isinstance(obj, (datetime, date)):
         return obj.isoformat()
     raise TypeError ("Type %s not serializable" % type(obj))
+
+
+def payload_resolve_props_and_vals(payload, schema, defs, schema_filepath):
+    """Iterates through payload properties and replaces them with title/description (whichever is shorter) from JSON schema,
+    also try to convert values to their descriptions if provided."""
+    if 'properties' in schema:
+        # payload is object, go through its properties
+        result = {}
+        schemaProps = schema['properties']
+        for prop in payload:
+            val = payload[prop]
+            if prop in schemaProps:
+                propDef = schemaProps[prop]
+                # choose new prop name from title/description
+                title = propDef['title'] if 'title' in propDef else None
+                titleLen = len(title) if title else float("inf")
+                desc = propDef['description'] if 'description' in propDef else None
+                descLen = len(desc) if desc else float("inf")
+                newProp = title if titleLen < descLen else desc
+                # resolve property value
+                if '$ref' in propDef: # if property value has reference assume it is object and recurse into it
+                    ref = propDef['$ref']
+                    assert ref.startswith("#/$defs/"), f"Invalid ref name prefix in ref '{ref}', in property {prop}"
+                    refName = ref[len("#/$defs/"):]
+                    assert refName in defs, f"Ref '{refName}' not found in ref defs, in property {prop}"
+                    val = payload_resolve_props_and_vals(val, defs[refName], defs, schema_filepath)
+                elif 'items' in propDef: # if property value has items assume it is array and recurse into every element
+                    assert '$ref' in propDef['items'], f"Missing ref in items, in property {prop}"
+                    ref = propDef['items']['$ref']
+                    assert ref.startswith("#/$defs/"), f"Invalid ref name prefix in ref '{ref}', in property {prop}"
+                    refName = ref[len("#/$defs/"):]
+                    assert refName in defs, f"Ref '{refName}' not found in ref defs, in property {prop}"
+                    valOld = val
+                    val = [payload_resolve_props_and_vals(val_curr, defs[refName], defs, schema_filepath) for val_curr in valOld]
+            else:
+                newProp = prop
+            result[newProp] = val
+    elif 'valueset-uri' in schema:
+        # payload is value, try to resolve using valueset
+        val = payload
+        with open(str(Path(schema_filepath).parent / Path(schema['valueset-uri'])), "r") as file:
+            valuesetText = file.read()
+            valueset = json.loads(valuesetText)
+            if 'valueSetValues' in valueset:
+                values = valueset['valueSetValues']
+                if payload in values:
+                    assert 'display' in values[payload], f"Missing display in value, in valueset {schema['valueset-uri']} for value {payload}"
+                    val = values[payload]['display']
+        result = val
+    else:
+        # unknown payload, leave intact
+        result = payload
+    return result
 
 
 parser = argparse.ArgumentParser(
@@ -133,6 +187,12 @@ parser.add_argument(
     "--prettyprint-dates",
     action="store_true",
     help="Format unix epoch time in claims as date-time strings",
+)
+parser.add_argument(
+    "--prettyprint-health",
+    action="store",
+    help="Resolve abbreviations/codes in properties and values of health payload, provide file path to combined JSON schema file",
+    metavar="PATH_TO_COMBINED_JSON_SCHEMA",
 )
 parser.add_argument(
     "cert", help="Certificate to validate against", default="dsc-worker.pem", nargs="?"
@@ -275,6 +335,17 @@ payload = decoded.payload
 
 if not args.skip_cbor:
     payload = cbor2.loads(payload)
+
+    schema = None
+    if args.prettyprint_health:
+        try:
+            with open(args.prettyprint_health, "r") as file:
+                schema = file.read()
+                schema = json.loads(schema)
+        except OSError as err:
+            print(f"Unable to load JSON schema for health pretty-print from '{args.prettyprint_health}' file: {err.strerror}", file=sys.stderr)
+            sys.exit(1)
+
     if not args.skip_claim:
         datetime_format = { 6: True, 4: True }
         claim_names = { 1 : "Issuer", 6: "Issued At", 4: "Experation time", -260 : "Health claims" }
@@ -303,6 +374,10 @@ if not args.skip_cbor:
               payload['nam'][k] = payload['nam'][k].encode("ascii","replace").decode('ascii')
               payload['nam'][k] = re.sub(r'[A-Z]{1}','X', payload['nam'][k])
               payload['nam'][k] = re.sub(r'[a-z\?]{1}','x', payload['nam'][k])
+
+    if args.prettyprint_health:
+        payload = payload_resolve_props_and_vals(payload, schema, schema['$defs'], args.prettyprint_health)
+
     if args.prettyprint_json:
         payload = json.dumps(payload, indent=4, sort_keys=True, default=json_serial, ensure_ascii=False)
     else:
