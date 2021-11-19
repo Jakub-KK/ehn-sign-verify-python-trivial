@@ -367,14 +367,12 @@ if not args.skip_cbor:
 
     if not args.noanon:
         if 'dob' in payload:
-           payload['dob'] = re.sub(r'\d{1}','X', payload['dob'])
+            payload['dob'] = re.sub(r'\d{1}','X', payload['dob'])
         if 'nam' in payload:
-           for k in payload['nam'].keys():
-              # Handle accented chars somewhat graceful (but capitals will leak a bit).
-              payload['nam'][k] = payload['nam'][k].encode("ascii","replace").decode('ascii')
-              payload['nam'][k] = re.sub(r'[A-Z]{1}','X', payload['nam'][k])
-              payload['nam'][k] = re.sub(r'[a-z\?]{1}','x', payload['nam'][k])
-
+            for k in payload['nam'].keys():
+                payload['nam'][k] = re.sub(r'[\w]{1}','X', payload['nam'][k])
+        if 'v' in payload and len(payload['v']) > 0 and 'ci' in payload['v'][0]:
+            payload['v'][0]['ci'] = 'URN:UVCI:XXXXXXXXXXXXXXXX'
     if args.prettyprint_health:
         payload = payload_resolve_props_and_vals(payload, schema, schema['$defs'], args.prettyprint_health)
 
@@ -382,8 +380,6 @@ if not args.skip_cbor:
         payload = json.dumps(payload, indent=4, sort_keys=True, default=json_serial, ensure_ascii=False)
     else:
         payload = json.dumps(payload, default=json_serial)
-    if not args.noanon:
-        payload = re.sub('URN:UV?CI:01:(\w+):\w+','URN:UCI:01:\g<1>:......', payload, flags=re.IGNORECASE)
     print(payload)
     sys.exit(0)
 
