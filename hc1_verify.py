@@ -127,6 +127,16 @@ parser.add_argument(
     help="Pretty print and sort the JSON. Will output UTF-8 as is (none pretty print will escape any UTF8).",
 )
 parser.add_argument(
+    "--show-uci-sha256",
+    action="store_true",
+    help="Calculate SHA256 of UCI",
+)
+parser.add_argument(
+    "--show-input-sha256",
+    action="store_true",
+    help="Calculate SHA256 of input bytes",
+)
+parser.add_argument(
     "cert", help="Certificate to validate against", default="dsc-worker.pem", nargs="?"
 )
 parser.add_argument(
@@ -135,6 +145,11 @@ parser.add_argument(
 args = parser.parse_args()
 
 cin = sys.stdin.buffer.read()
+
+if args.show_input_sha256:
+    sha256 = hashes.Hash(hashes.SHA256())
+    sha256.update(cin)
+    input_sha256 = hexlify(sha256.finalize()).decode("ASCII")
 
 if args.base64:
     cin = b64decode(cin.decode("ASCII"))
@@ -274,6 +289,10 @@ if not args.skip_cbor:
               payload['nam'][k] = payload['nam'][k].encode("ascii","replace").decode('ascii')
               payload['nam'][k] = re.sub(r'[A-Z]{1}','X', payload['nam'][k])
               payload['nam'][k] = re.sub(r'[a-z\?]{1}','x', payload['nam'][k])
+    if args.show_uci_sha256 and ('v' in payload and len(payload['v']) > 0 and 'ci' in payload['v'][0]):
+        sha256 = hashes.Hash(hashes.SHA256())
+        sha256.update(payload['v'][0]['ci'].encode("ASCII"))
+        uci_sha256 = hexlify(sha256.finalize()).decode("ASCII")
     if args.prettyprint_json:
         payload = json.dumps(payload, indent=4, sort_keys=True, default=json_serial, ensure_ascii=False)
     else:
@@ -281,6 +300,12 @@ if not args.skip_cbor:
     if not args.noanon:
         payload = re.sub('URN:UV?CI:01:(\w+):\w+','URN:UCI:01:\g<1>:......', payload, flags=re.IGNORECASE)
     print(payload)
+    if args.show_input_sha256:
+        n = "SHA256(INPUT)"
+        print(f'{n:20}: {input_sha256}')
+    if args.show_uci_sha256 and uci_sha256:
+        n = "SHA256(UCI)"
+        print(f'{n:20}: {uci_sha256}')
     sys.exit(0)
 
 sys.stdout.buffer.write(payload)
