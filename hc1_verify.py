@@ -121,11 +121,47 @@ def payload_resolve_props_and_vals(payload, schema, defs, schema_filepath):
     return result
 
 
+from typing import Union
+from base45 import BASE45_CHARSET
+def laxb45decode(s: Union[bytes, str]) -> bytes:
+    """Decode base45-encoded string to bytes, in case of truncated or invalid input return partially decoded result"""
+    res = []
+    try:
+        inp = s if isinstance(s, str) else s.decode()
+        buf = []
+        for i in range(len(inp)):
+            try:
+                buf.append(BASE45_CHARSET.index(inp[i]))
+            except (ValueError):
+                print('LAXb45decode: char not found: ',i,inp[i])
+                break
+        buflen = len(buf)
+        for i in range(0, buflen, 3):
+            if i + 1 >= buflen:
+                print('LAXb45decode: len too short: ',i)
+                break
+            x = buf[i] + buf[i + 1] * 45
+            if buflen - i >= 3:
+                x = buf[i] + buf[i + 1] * 45 + buf[i + 2] * 45 * 45
+                if x > 65535:
+                    print('LAXb45decode: val too high: ',i,x,buf[i],buf[i+1],buf[i+2],'"'+s[i:i+3]+'"')
+                    break
+                res.extend(list(divmod(x, 256)))
+            else:
+                res.append(x)
+        return bytes(res)
+    except (ValueError, IndexError, AttributeError):
+        raise ValueError("Invalid base45 string")
+
+
 parser = argparse.ArgumentParser(
     description="Parse and validate a base45/zlib/cose/cbor QR."
 )
 parser.add_argument(
     "-B", "--base64", action="store_true", help="Use base64 instead of base45"
+)
+parser.add_argument(
+    "-L", "--lax-base45", action="store_true", help="Use lax base45 instead of strict base45 (in case of truncated or invalid base45 input returns partially decoded result)"
 )
 parser.add_argument(
     "-b", "--skip-base45", action="store_true", help="Skip base45 decoding"
@@ -215,7 +251,10 @@ else:
               if cin.startswith(':'):
                   cin = cin[1:]
 
-        cin = b45decode(cin)
+        if args.lax_base45:
+            cin = laxb45decode(cin)
+        else:
+            cin = b45decode(cin)
 
 if not args.skip_zlib:
     if (cin[0] == 0x78):
