@@ -217,7 +217,7 @@ parser.add_argument(
     "-p",
     "--prettyprint-json",
     action="store_true",
-    help="Pretty print and sort the JSON. Will output UTF-8 as is (none pretty print will escape any UTF8).",
+    help="Pretty print the JSON. Will output UTF-8 as is (none pretty print will escape any UTF8).",
 )
 parser.add_argument(
     "--prettyprint-dates",
@@ -416,7 +416,7 @@ if not args.skip_cbor:
         payload = payload_resolve_props_and_vals(payload, schema, schema['$defs'], args.prettyprint_health)
 
     if args.prettyprint_json:
-        payload = json.dumps(payload, indent=4, sort_keys=True, default=json_serial, ensure_ascii=False)
+        payload = json.dumps(payload, indent=4, sort_keys=False, default=json_serial, ensure_ascii=False)
     else:
         payload = json.dumps(payload, default=json_serial)
     print(payload)
